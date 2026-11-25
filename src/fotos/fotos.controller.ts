@@ -1,23 +1,34 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   Param,
+  ParseFloatPipe,
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { Foto } from './entities/foto.entity.js';
 import { FotosService } from './fotos.service.js';
+import type { FiltroFotos, PaginaFotos } from './fotos.service.js';
 
 @Controller('fotos')
 export class FotosController {
   constructor(private readonly fotosService: FotosService) {}
 
   @Get()
-  findAll(): Promise<Foto[]> {
-    return this.fotosService.findAll();
+  findAll(
+    @Query('min', new DefaultValuePipe(0), ParseFloatPipe) min: number,
+    @Query('max', new DefaultValuePipe(5), ParseFloatPipe) max: number,
+    @Query('q') q: string | undefined,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ): Promise<PaginaFotos> {
+    const filtros: FiltroFotos = { min, max, q, page, limit };
+    return this.fotosService.findAll(filtros);
   }
 
   @Get(':id')
