@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, ILike, Repository } from 'typeorm';
+import { Between, ILike, In, Repository } from 'typeorm';
+import type { CreateFotoDto } from './dto/create-foto.dto.js';
+import type { QueryFotosDto } from './dto/query-fotos.dto.js';
+import type { UpdateFotoDto } from './dto/update-foto.dto.js';
+import { Etiqueta } from './entities/etiqueta.entity.js';
 import { Foto } from './entities/foto.entity.js';
 
 export interface FiltroFotos {
@@ -25,6 +29,8 @@ export class FotosService {
   constructor(
     @InjectRepository(Foto)
     private readonly fotosRepo: Repository<Foto>,
+    @InjectRepository(Etiqueta)
+    private readonly etiquetasRepo: Repository<Etiqueta>,
   ) {}
 
   async findAll({
@@ -35,7 +41,7 @@ export class FotosService {
     orden = 'asc',
     page,
     limit,
-  }: FiltroFotos): Promise<PaginaFotos> {
+  }: QueryFotosDto): Promise<PaginaFotos> {
     const [data, total] = await this.fotosRepo.findAndCount({
       where: {
         calificacion: Between(min, max),
@@ -66,19 +72,39 @@ export class FotosService {
     return foto;
   }
 
-  create(datos: Partial<Foto>): Promise<Foto> {
-    const foto = this.fotosRepo.create(datos);
-    return this.fotosRepo.save(foto);
+  async create({ albumId, etiquetas, ...datos }: CreateFotoDto): Promise<Foto> {
+    const foto = this.fotosRepo.create({
+      ...datos,
+      album: albumId ? { id: albumId } : null,
+      etiquetas: await this.buscarOCrearEtiquetas(etiquetas),
+    });
+    const guardada = await this.fotosRepo.save(foto);
+    return this.findOne(guardada.id);
   }
 
-  async update(id: number, datos: Partial<Foto>): Promise<Foto> {
+  async update(
+    id: number,
+    { albumId, etiquetas, ...datos }: UpdateFotoDto,
+  ): Promise<Foto> {
     const foto = await this.findOne(id);
     Object.assign(foto, datos);
-    return this.fotosRepo.save(foto);
+    if (albumId !== undefined) foto.album = { id: albumId } as Foto['album'];
+    if (etiquetas) foto.etiquetas = await this.buscarOCrearEtiquetas(etiquetas);
+    await this.fotosRepo.save(foto);
+    return this.findOne(id);
   }
 
   async remove(id: number): Promise<void> {
     const foto = await this.findOne(id);
     await this.fotosRepo.remove(foto);
+  }
+
+  private async buscarOCrearEtiquetas(textos: string[] = []) {
+    const limpios = [...new Set(textos.map((texto) => texto.trim().toLowerCase()))];
+    const existentes = await this.etiquetasRepo.findBy({ texto: In(limpios) });
+    const nuevas = limpios
+      .filter((texto) => !existentes.some((etiqueta) => etiqueta.texto === texto))
+      .map((texto) => this.etiquetasRepo.create({ texto }));
+    return [...existentes, ...(await this.etiquetasRepo.save(nuevas))];
   }
 }
